@@ -1,75 +1,133 @@
 package main
 
 import (
-    "fmt"
-    "os"
-    "os/exec"
-    "log"
-    "strings"
+	"fmt"
+	"io"
+	"log"
+	"os"
+	"os/exec"
+	"strings"
 
-    "github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
-var docStyle = lipgloss.NewStyle().Margin(1, 2)
+const listHeight = 14
 
-type item struct {
-    title string
+var (
+	titleStyle        = lipgloss.NewStyle().MarginLeft(2)
+	itemStyle         = lipgloss.NewStyle().PaddingLeft(4)
+	selectedItemStyle = lipgloss.NewStyle().PaddingLeft(2).Foreground(lipgloss.Color("170"))
+	paginationStyle   = list.DefaultStyles().PaginationStyle.PaddingLeft(4)
+	helpStyle         = list.DefaultStyles().HelpStyle.PaddingLeft(4).PaddingBottom(1)
+	quitTextStyle     = lipgloss.NewStyle().Margin(1, 0, 2, 4)
+)
+
+type item string
+
+func (i item) FilterValue() string { return "" }
+
+type itemDelegate struct{}
+
+func (d itemDelegate) Height() int                               { return 1 }
+func (d itemDelegate) Spacing() int                              { return 0 }
+func (d itemDelegate) Update(msg tea.Msg, m *list.Model) tea.Cmd { return nil }
+func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list.Item) {
+	i, ok := listItem.(item)
+	if !ok {
+		return
+	}
+
+	str := fmt.Sprintf("%d. %s", index+1, i)
+
+	fn := itemStyle.Render
+	if index == m.Index() {
+		fn = func(s string) string {
+			return selectedItemStyle.Render("> " + s)
+		}
+	}
+
+	fmt.Fprint(w, fn(str))
 }
 
-func (i item) Title() string { return i.title }
-func (i item) FilterValue() string { return i.title }
-
 type model struct {
-    list list.Model
+	list     list.Model
+	choice   string
+	quitting bool
 }
 
 func (m model) Init() tea.Cmd {
-    return nil
+	return nil
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-    switch msg := msg.(type) {
-    case tea.KeyMsg:
-        if msg.String() == "ctrl+c" {
-            return m, tea.Quit
-        }
-    case tea.WindowSizeMsg:
-        h, v := docStyle.GetFrameSize()
-        m.list.SetSize(msg.Width-h, msg.Height-v)
-    }
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.list.SetWidth(msg.Width)
+		return m, nil
 
-    var cmd tea.Cmd
-    m.list, cmd = m.list.Update(msg)
-    return m, cmd
+	case tea.KeyMsg:
+		switch keypress := msg.String(); keypress {
+		case "ctrl+c":
+			m.quitting = true
+			return m, tea.Quit
+
+		case "enter":
+			i, ok := m.list.SelectedItem().(item)
+			if ok {
+				m.choice = string(i)
+			}
+			return m, tea.Quit
+		}
+	}
+
+	var cmd tea.Cmd
+	m.list, cmd = m.list.Update(msg)
+	return m, cmd
 }
 
 func (m model) View() string {
-    return docStyle.Render(m.list.View())
+	if m.choice != "" {
+		return quitTextStyle.Render(fmt.Sprintf("%s", m.choice))
+	}
+	if m.quitting {
+		return quitTextStyle.Render("Quit without making a selection.")
+	}
+	return "\n" + m.list.View()
 }
 
 // Uses exec to run AWS CLI command to list profiles
 func GetProfiles() []string {
-    cmd := exec.Command("aws", "configure", "list-profiles")
-    cmd.Stderr = os.Stderr
-    data, err := cmd.Output()
+	cmd := exec.Command("aws", "configure", "list-profiles")
+	cmd.Stderr = os.Stderr
+	data, err := cmd.Output()
 
-    if err != nil {
-        log.Fatalf("Failed to call cmd.Output(): %v", err)
-    }
+	if err != nil {
+		log.Fatalf("Failed to call cmd.Output(): %v", err)
+	}
 
-   profiles := strings.Split(string(data), "\n")
+	profiles := strings.Split(string(data), "\n")
 
-   return profiles
+	return profiles
 }
 
 func main() {
-    items := []list.Item{}
+	items := []list.Item{}
 
-    for _, profile := range GetProfiles() {
-        items = append(items, profile)
-    }
+	for _, profile := range GetProfiles() {
+		items = append(items, item(profile))
+	}
 
-    fmt.Sprintf("Profiles: %v", items)
+	const defaultWidth = 20
+
+	l := list.New(items, itemDelegate{}, defaultWidth, listHeight)
+	l.Title = "AWS Profiles"
+
+	m := model{list: l}
+
+	if err := tea.NewProgram(m).Start(); err != nil {
+		fmt.Println("Error running program:", err)
+		os.Exit(1)
+	}
 }
