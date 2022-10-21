@@ -1,0 +1,105 @@
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"os/exec"
+	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+type model struct {
+	choices  []string         // Items in the list
+	cursor   int              // Which item is the cursor pointing at
+	selected map[int]struct{} // Which item is selected
+}
+
+// Uses exec to run AWS CLI command to list profiles
+func GetProfiles() []string {
+	cmd := exec.Command("aws", "configure", "list-profiles")
+	cmd.Stderr = os.Stderr
+	data, err := cmd.Output()
+
+	if err != nil {
+		log.Fatalf("Failed to call cmd.Output(): %v", err)
+	}
+
+	profiles := strings.Split(string(data), "\n")
+
+	return profiles
+}
+
+func initialModel() model {
+	return model{
+		choices:  GetProfiles(),
+		selected: make(map[int]struct{}),
+	}
+}
+
+func (m model) Init() tea.Cmd {
+	return nil
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+
+	// Is it a key press
+	case tea.KeyMsg:
+
+		// Which key was pressed
+		switch msg.String() {
+
+		// Keys to exit the program
+		case "ctrl+c", "q":
+			return m, tea.Quit
+
+		// "up" and "k" move the cursor up
+		case "up", "k":
+			if m.cursor > 0 {
+				m.cursor--
+			}
+
+		// "down" and "j" move the cursor down
+		case "down", "j":
+			if m.cursor < len(m.choices)-1 {
+				m.cursor++
+			}
+
+		case "enter":
+			m.selected[m.cursor] = struct{}{}
+		}
+	}
+
+	// Return the updated model to Bubble Tea runtime for processing.
+	return m, nil
+}
+
+func (m model) View() string {
+	s := "Select an AWS profile:\n\n"
+
+	for i, choice := range m.choices {
+		cursor := " "
+		if m.cursor == i {
+			cursor = ">"
+		}
+
+		s += fmt.Sprintf("%s %s\n", cursor, choice)
+	}
+
+	s += "\nPress q to quit. \n"
+
+	return s
+}
+
+func main() {
+	p := tea.NewProgram(initialModel())
+
+	fmt.Sprintf("Initial model: %v", p)
+
+	if err := p.Start(); err != nil {
+		fmt.Printf("Error: %v", err)
+		os.Exit(1)
+	}
+}
