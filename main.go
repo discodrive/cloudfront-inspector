@@ -3,10 +3,9 @@ package main
 import (
 	"fmt"
 	"io"
-	"log"
 	"os"
-	"os/exec"
-	"strings"
+
+	profiles "cf-check/profiles"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -18,7 +17,7 @@ const listHeight = 14
 var (
 	titleStyle        = lipgloss.NewStyle().MarginLeft(2)
 	itemStyle         = lipgloss.NewStyle().PaddingLeft(4)
-	selectedItemStyle = lipgloss.NewStyle().PaddingLeft(2).Foreground(lipgloss.Color("170"))
+	selectedItemStyle = lipgloss.NewStyle().PaddingLeft(2).Foreground(lipgloss.Color("#FF5194"))
 	paginationStyle   = list.DefaultStyles().PaginationStyle.PaddingLeft(4)
 	helpStyle         = list.DefaultStyles().HelpStyle.PaddingLeft(4).PaddingBottom(1)
 	quitTextStyle     = lipgloss.NewStyle().Margin(1, 0, 2, 4)
@@ -97,25 +96,10 @@ func (m model) View() string {
 	return "\n" + m.list.View()
 }
 
-// Uses exec to run AWS CLI command to list profiles
-func GetProfiles() []string {
-	cmd := exec.Command("aws", "configure", "list-profiles")
-	cmd.Stderr = os.Stderr
-	data, err := cmd.Output()
-
-	if err != nil {
-		log.Fatalf("Failed to call cmd.Output(): %v", err)
-	}
-
-	profiles := strings.Split(string(data), "\n")
-
-	return profiles
-}
-
 func main() {
 	items := []list.Item{}
 
-	for _, profile := range GetProfiles() {
+	for _, profile := range profiles.GetProfiles() {
 		items = append(items, item(profile))
 	}
 
