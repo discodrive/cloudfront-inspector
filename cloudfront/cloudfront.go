@@ -4,9 +4,8 @@ import (
     "log"
     "context"
 
-    "github.com/aws/aws-sdk-go-v2/aws"
+    //"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
-    "github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
 )
 
@@ -19,16 +18,11 @@ func GetDistributions(profile string) []string {
         log.Fatalf("Error loading config: %v", err)       
     }
     
-    // Create a new session to use with CloudFront service
-    s, err := session.NewSession(cfg)
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    client := cloudfront.New(s)
+    client := cloudfront.NewFromConfig(cfg)
     input := &cloudfront.ListDistributionsInput{}
 
-    result, err := 
+    result, err := client.ListDistributions(context.Background(), input)
 
+    return result
 
 }
