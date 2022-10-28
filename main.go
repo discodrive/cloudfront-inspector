@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 
+	"cf-check/cloudfront"
 	profiles "cf-check/profiles"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -88,7 +89,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) View() string {
 	if m.choice != "" {
-		return quitTextStyle.Render(fmt.Sprintf("%s", m.choice))
+		return quitTextStyle.Render(fmt.Sprintf("%s", cloudfront.GetDistributions(m.choice)))
+		//return quitTextStyle.Render(fmt.Sprintf("%s", m.choice))
 	}
 	if m.quitting {
 		return quitTextStyle.Render("Quit without making a selection.")
@@ -97,6 +99,7 @@ func (m model) View() string {
 }
 
 func main() {
+
 	items := []list.Item{}
 
 	for _, profile := range profiles.GetProfiles() {
@@ -114,4 +117,5 @@ func main() {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)
 	}
+
 }
