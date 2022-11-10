@@ -1,16 +1,20 @@
 package main
 
 import (
+	"cf-check/profiles"
+	"context"
 	"fmt"
 	"io"
+	"log"
 	"os"
-
-	"cf-check/cloudfront"
-	profiles "cf-check/profiles"
+    "strconv"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
 )
 
 const listHeight = 14
@@ -89,8 +93,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) View() string {
 	if m.choice != "" {
-		return quitTextStyle.Render(fmt.Sprintf("%s", cloudfront.GetDistributions(m.choice)))
-		//return quitTextStyle.Render(fmt.Sprintf("%s", m.choice))
+		distribution := GetDistributions(m.choice)
+
+		for _, dist := range distribution.DistributionList.Items {
+            fmt.Println(dist.Status)
+		}
+		//return quitTextStyle.Render(fmt.Sprintf("%s", GetDistributions()))
 	}
 	if m.quitting {
 		return quitTextStyle.Render("Quit without making a selection.")
@@ -98,8 +106,7 @@ func (m model) View() string {
 	return "\n" + m.list.View()
 }
 
-func main() {
-
+func ProfilesList() tea.Model {
 	items := []list.Item{}
 
 	for _, profile := range profiles.GetProfiles() {
@@ -113,7 +120,28 @@ func main() {
 
 	m := model{list: l}
 
-	if err := tea.NewProgram(m).Start(); err != nil {
+	return m
+}
+
+func GetDistributions(profile string) *cloudfront.ListDistributionsOutput {
+	// Load config based on a selected profile
+	cfg, err := config.LoadDefaultConfig(context.TODO(),
+		config.WithSharedConfigProfile(profile))
+
+	if err != nil {
+		log.Fatalf("Error loading config: %v", err)
+	}
+
+	client := cloudfront.NewFromConfig(cfg)
+
+	res, err := client.ListDistributions(context.TODO(), &cloudfront.ListDistributionsInput{})
+
+	return res
+}
+
+func main() {
+
+	if err := tea.NewProgram(ProfilesList()).Start(); err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)
 	}
