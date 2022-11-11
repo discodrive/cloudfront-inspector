@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	"os"
-    "strconv"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -17,7 +16,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
 )
 
-const listHeight = 14
+const (
+	listHeight    = 14
+	listBatchSize = 100
+	defaultWidth  = 20
+)
 
 var (
 	titleStyle        = lipgloss.NewStyle().MarginLeft(2)
@@ -29,10 +32,24 @@ var (
 )
 
 type item string
+type itemDelegate struct{}
+type model struct {
+	list          list.Model
+	profileChoice string
+	distChoice    string
+	quitting      bool
+}
+
+type Distribution struct {
+	// "InProgress": distribution is updating
+	// "Deployed": distribution is active and working
+	distributionId string
+	Domain         string
+	Comment        string
+	Status         string
+}
 
 func (i item) FilterValue() string { return "" }
-
-type itemDelegate struct{}
 
 func (d itemDelegate) Height() int                               { return 1 }
 func (d itemDelegate) Spacing() int                              { return 0 }
@@ -55,12 +72,6 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	fmt.Fprint(w, fn(str))
 }
 
-type model struct {
-	list     list.Model
-	choice   string
-	quitting bool
-}
-
 func (m model) Init() tea.Cmd {
 	return nil
 }
@@ -80,7 +91,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			i, ok := m.list.SelectedItem().(item)
 			if ok {
-				m.choice = string(i)
+				m.profileChoice = string(i)
 			}
 			return m, tea.Quit
 		}
@@ -91,18 +102,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m model) View() string {
-	if m.choice != "" {
-		distribution := GetDistributions(m.choice)
+// The main view, calling the appropriate sub-view
+// func (m model) View() string {
+// 	var s string
+// 	if m.quitting {
+// 		return quitTextStyle.Render("Quit without making a selection.")
+// 	}
+// 	if m.profileChoice != "" {
+// 		s = ProfileView(m)
+// 	}
+// 	// else {
+// 	// 	s = DistributionsView(m)
+// 	// }
+// 	return indent.String("\n"+s+"\n\n", 2)
+// }
 
-		for _, dist := range distribution.DistributionList.Items {
-            fmt.Println(dist.Status)
-		}
-		//return quitTextStyle.Render(fmt.Sprintf("%s", GetDistributions()))
+func (m model) View() string {
+	if m.profileChoice != "" {
+		GetDistributions(m.profileChoice)
 	}
 	if m.quitting {
 		return quitTextStyle.Render("Quit without making a selection.")
 	}
+	return "\n" + m.list.View()
+}
+
+func ProfileView(m model) string {
 	return "\n" + m.list.View()
 }
 
@@ -113,8 +138,6 @@ func ProfilesList() tea.Model {
 		items = append(items, item(profile))
 	}
 
-	const defaultWidth = 20
-
 	l := list.New(items, itemDelegate{}, defaultWidth, listHeight)
 	l.Title = "AWS Profiles"
 
@@ -123,7 +146,7 @@ func ProfilesList() tea.Model {
 	return m
 }
 
-func GetDistributions(profile string) *cloudfront.ListDistributionsOutput {
+func GetDistributions(profile string) ([]*Distribution, error) {
 	// Load config based on a selected profile
 	cfg, err := config.LoadDefaultConfig(context.TODO(),
 		config.WithSharedConfigProfile(profile))
@@ -133,17 +156,29 @@ func GetDistributions(profile string) *cloudfront.ListDistributionsOutput {
 	}
 
 	client := cloudfront.NewFromConfig(cfg)
-
 	res, err := client.ListDistributions(context.TODO(), &cloudfront.ListDistributionsInput{})
+	ret := make([]*Distribution, 0, listBatchSize)
+	nitems := int(*res.DistributionList.Quantity)
 
-	return res
+	for i := 0; i < nitems; i++ {
+		cfrDist := res.DistributionList.Items[i]
+		dist := Distribution{
+			Status:         *cfrDist.Status,
+			Comment:        *cfrDist.Comment,
+			Domain:         *cfrDist.DomainName,
+			distributionId: *cfrDist.Id,
+		}
+		ret = append(ret, &dist)
+		fmt.Println(dist)
+	}
+
+	return ret, nil
 }
 
 func main() {
-
+	// initialModel := model{list.Model{}, "", "", false}
 	if err := tea.NewProgram(ProfilesList()).Start(); err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)
 	}
-
 }
