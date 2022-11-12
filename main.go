@@ -34,7 +34,7 @@ var (
 type item string
 type itemDelegate struct{}
 type model struct {
-	list          list.Model
+	profileList   list.Model
 	profileChoice string
 	distChoice    string
 	quitting      bool
@@ -72,50 +72,39 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 	fmt.Fprint(w, fn(str))
 }
 
+func main() {
+	//initialModel := model{list.Model{}, "", "", false}
+	if err := tea.NewProgram(ProfilesList()).Start(); err != nil {
+		fmt.Println("Error running program:", err)
+		os.Exit(1)
+	}
+}
+
 func (m model) Init() tea.Cmd {
 	return nil
 }
 
+// Primary update function
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.list.SetWidth(msg.Width)
-		return m, nil
-
-	case tea.KeyMsg:
-		switch keypress := msg.String(); keypress {
-		case "ctrl+c":
+	// Make sure these keys always quit
+	if msg, ok := msg.(tea.KeyMsg); ok {
+		k := msg.String()
+		if k == "q" || k == "esc" || k == "ctrl+c" {
 			m.quitting = true
-			return m, tea.Quit
-
-		case "enter":
-			i, ok := m.list.SelectedItem().(item)
-			if ok {
-				m.profileChoice = string(i)
-			}
 			return m, tea.Quit
 		}
 	}
 
+	// Hand off the message and model to the appropriate update function for the
+	// appropriate view based on the current state.
+	if m.profileChoice == "" {
+		return updateProfileChoices(msg, m)
+	}
+	//return updateDistChoices(msg, m)
 	var cmd tea.Cmd
-	m.list, cmd = m.list.Update(msg)
+	m.profileList, cmd = m.profileList.Update(msg)
 	return m, cmd
 }
-
-// The main view, calling the appropriate sub-view
-// func (m model) View() string {
-// 	var s string
-// 	if m.quitting {
-// 		return quitTextStyle.Render("Quit without making a selection.")
-// 	}
-// 	if m.profileChoice != "" {
-// 		s = ProfileView(m)
-// 	}
-// 	// else {
-// 	// 	s = DistributionsView(m)
-// 	// }
-// 	return indent.String("\n"+s+"\n\n", 2)
-// }
 
 func (m model) View() string {
 	if m.profileChoice != "" {
@@ -124,13 +113,32 @@ func (m model) View() string {
 	if m.quitting {
 		return quitTextStyle.Render("Quit without making a selection.")
 	}
-	return "\n" + m.list.View()
+	return "\n" + m.profileList.View()
 }
 
-func ProfileView(m model) string {
-	return "\n" + m.list.View()
+// Sub-update functions
+
+// Update loop for the first view where you're choosing a profile.
+func updateProfileChoices(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch keypress := msg.String(); keypress {
+		case "enter":
+			i, ok := m.profileList.SelectedItem().(item)
+			if ok {
+				m.profileChoice = string(i)
+			}
+			return m, tea.Quit
+		}
+	}
+	var cmd tea.Cmd
+	m.profileList, cmd = m.profileList.Update(msg)
+	return m, cmd
 }
 
+// Utilities
+
+// Loop through the profiles and create the profileList
 func ProfilesList() tea.Model {
 	items := []list.Item{}
 
@@ -141,11 +149,12 @@ func ProfilesList() tea.Model {
 	l := list.New(items, itemDelegate{}, defaultWidth, listHeight)
 	l.Title = "AWS Profiles"
 
-	m := model{list: l}
+	m := model{profileList: l}
 
 	return m
 }
 
+// Return the list of distributions for the selected profile
 func GetDistributions(profile string) ([]*Distribution, error) {
 	// Load config based on a selected profile
 	cfg, err := config.LoadDefaultConfig(context.TODO(),
@@ -173,12 +182,4 @@ func GetDistributions(profile string) ([]*Distribution, error) {
 	}
 
 	return ret, nil
-}
-
-func main() {
-	// initialModel := model{list.Model{}, "", "", false}
-	if err := tea.NewProgram(ProfilesList()).Start(); err != nil {
-		fmt.Println("Error running program:", err)
-		os.Exit(1)
-	}
 }
