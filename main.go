@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/reflow/indent"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
@@ -36,6 +37,7 @@ type itemDelegate struct{}
 type model struct {
 	profileList   list.Model
 	profileChoice string
+	distList      list.Model
 	distChoice    string
 	quitting      bool
 }
@@ -73,7 +75,7 @@ func (d itemDelegate) Render(w io.Writer, m list.Model, index int, listItem list
 }
 
 func main() {
-	//initialModel := model{list.Model{}, "", "", false}
+	//initialModel := model{list.Model{}, "", list.Model{}, "", false}
 	if err := tea.NewProgram(ProfilesList()).Start(); err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)
@@ -100,20 +102,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.profileChoice == "" {
 		return updateProfileChoices(msg, m)
 	}
-	//return updateDistChoices(msg, m)
-	var cmd tea.Cmd
-	m.profileList, cmd = m.profileList.Update(msg)
-	return m, cmd
+	return updateDistChoices(msg, m)
 }
 
 func (m model) View() string {
-	if m.profileChoice != "" {
-		GetDistributions(m.profileChoice)
-	}
+	var s string
 	if m.quitting {
 		return quitTextStyle.Render("Quit without making a selection.")
 	}
-	return "\n" + m.profileList.View()
+	if m.profileChoice == "" {
+		s = ProfilesView(m)
+	} else if (m.profileChoice != "") && (m.distChoice == "") {
+		s = DistributionsView(m)
+	}
+	return indent.String("\n"+s+"\n\n", 2)
 }
 
 // Sub-update functions
@@ -136,6 +138,36 @@ func updateProfileChoices(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func updateDistChoices(msg tea.Msg, m model) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch keypress := msg.String(); keypress {
+		case "enter":
+			i, ok := m.distList.SelectedItem().(item)
+			if ok {
+				m.distChoice = string(i)
+			}
+			return m, tea.Quit
+		}
+	}
+	var cmd tea.Cmd
+	m.distList, cmd = m.distList.Update(msg)
+	return m, cmd
+}
+
+// Sub-views
+
+// Select profile view
+func ProfilesView(m model) string {
+	return "\n" + m.profileList.View()
+}
+
+// Select distibution view
+func DistributionsView(m model) string {
+	return fmt.Sprintf("%s", GetDistributions(m.profileChoice))
+	//return "\n" + m.distList.View()
+}
+
 // Utilities
 
 // Loop through the profiles and create the profileList
@@ -155,7 +187,7 @@ func ProfilesList() tea.Model {
 }
 
 // Return the list of distributions for the selected profile
-func GetDistributions(profile string) ([]*Distribution, error) {
+func GetDistributions(profile string) tea.Model {
 	// Load config based on a selected profile
 	cfg, err := config.LoadDefaultConfig(context.TODO(),
 		config.WithSharedConfigProfile(profile))
@@ -178,8 +210,18 @@ func GetDistributions(profile string) ([]*Distribution, error) {
 			distributionId: *cfrDist.Id,
 		}
 		ret = append(ret, &dist)
-		fmt.Println(dist)
 	}
 
-	return ret, nil
+	items := []list.Item{}
+
+	for _, dist := range ret {
+		items = append(items, item(dist.distributionId))
+	}
+
+	l := list.New(items, itemDelegate{}, defaultWidth, listHeight)
+	l.Title = "Distributions"
+
+	m := model{distList: l}
+
+	return m
 }
